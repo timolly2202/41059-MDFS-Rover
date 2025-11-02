@@ -1,101 +1,130 @@
+// Updated Rover code from 29/10/2025. Both DC and Servo Code in one. 
+// Doesn't include drop of balls or ability for turning to go up seesaw. 
+#include <Servo.h>
+ 
 // Pin definitions
 #define BUTTON_PIN 52
 #define LED_PIN 53
-
-bool start = false;
-
+ 
+//Servos
+Servo servoLeft;
+Servo servoRight;
+#define L_SERVO 11
+#define R_SERVO 13
+ 
 //Left Forward
 #define LENB_PIN 2   // PWM
 #define LIN3_PIN 34   // Direction pin 1
 #define LIN4_PIN 35   // Direction pin 2
 //Encoder
+#define L_INTERRUPT 3
 #define L_SENSORA 18 // interrupt
 #define L_SENSORB 19 // digital pin
 byte L_SENSORA_LAST;
 int L_duration;
 bool L_direction;
-
+ 
 //Right Forward
 #define RENA_PIN 5   // PWM
 #define RIN1_PIN 44   // Direction pin 1
 #define RIN2_PIN 45   // Direction pin 2
 //Encoder
+#define R_INTERRUPT 1
 #define R_SENSORA 20 // interrupt
 #define R_SENSORB 21 // digital pin
 byte R_SENSORA_LAST;
 int R_duration;
 bool R_direction;
-
+ 
+bool start = false;
+ 
 int max_speed = 165;
+int current_speed = 0;
+ 
+// const int WHEEL_DIAMETER = 85; //mm
+const int WHEEL_CIRCUMFERENCE = 267; //mm (approx, it is 267.035 mm more exactly)
+const int CPM_PER_REVOLUTION = 700;
 
+enum Motion {
+    FORWARD, BACKWARD, LEFT, RIGHT
+  };
+ 
 void setup() {
-  Serial.begin(57600);//Initialize the serial port
-
+  // Serial.begin(57600);//Initialize the serial port
+ 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   pinMode(LED_PIN, OUTPUT);
-
+ 
   pinMode(LENB_PIN, OUTPUT);
   pinMode(LIN3_PIN, OUTPUT);
   pinMode(LIN4_PIN, OUTPUT);
-  
+ 
   pinMode(RENA_PIN, OUTPUT);
   pinMode(RIN1_PIN, OUTPUT);
   pinMode(RIN2_PIN, OUTPUT);
-
-  //left forward
-  digitalWrite(LIN3_PIN, LOW);
-  digitalWrite(LIN4_PIN, HIGH);
-
-  //right forward
-  digitalWrite(RIN1_PIN, HIGH);
-  digitalWrite(RIN2_PIN, LOW);
-
+ 
+  changeDirection(Motion::FORWARD);
+ 
   //Encoders
   L_direction = true; //default -> Forward
   pinMode(L_SENSORB, INPUT);
   attachInterrupt(digitalPinToInterrupt(L_SENSORA),leftWheelSpeed,CHANGE);
-
+ 
   R_direction = true;
   pinMode(R_SENSORB, INPUT);
   attachInterrupt(digitalPinToInterrupt(R_SENSORA),rightWheelSpeed,CHANGE);
-
+ 
+  // Attach servos
+  servoLeft.attach(L_SERVO);
+  servoRight.attach(R_SERVO);
+ 
+  servoLeft.write(0);
+  servoRight.write(180);
 }
-
+ 
 void loop() {
   // Serial.println(digitalRead(BUTTON_PIN));
   if (digitalRead(BUTTON_PIN) == 0){
     start = true;
-
+ 
     while(digitalRead(BUTTON_PIN) == 0);
   }
-
+ 
   if (start) {
     digitalWrite(LED_PIN, HIGH);
 
-    for (int speed = 0; speed <= max_speed; speed++) {
-      analogWrite(LENB_PIN, speed);
-      analogWrite(RENA_PIN, speed);
-      printSpeed();
-      delay(20);
-    }
-
     delay(1000);
 
-    for (int speed = max_speed; speed >= 0; speed--) {
-      analogWrite(LENB_PIN, speed);
-      analogWrite(RENA_PIN, speed);
-      printSpeed();
-      delay(20);
-    }
+    //Drive forward 
+    changeDirection(Motion::FORWARD);
+    delay(10);
+ 
+    current_speed = 100;
+ 
+    travelSteps(850,current_speed);
+    // distanceTravel(250,current_speed); // travel 350 mm to the balls
+    delay(100);
+    // resetArm();
 
+    collectPayload();
+    delay(5000);
+
+    travelSteps(300,current_speed);
+
+    resetArm();
+
+    changeDirection(Motion::LEFT);
+    delay(10);
+
+    travelSteps(1050, current_speed);
+ 
     digitalWrite(LED_PIN, LOW);
     start = false;
-    printSpeed();
   }
-  
+ 
   delay(10);
 }
-
+ 
 void leftWheelSpeed()
 {
   int Lstate = digitalRead(L_SENSORA);
@@ -112,11 +141,11 @@ void leftWheelSpeed()
     }
   }
   L_SENSORA_LAST = Lstate;
-
+ 
   if(!L_direction)  L_duration  ;
   else  L_duration--;
 }
-
+ 
 void rightWheelSpeed()
 {
   int Lstate = digitalRead(R_SENSORA);
@@ -133,17 +162,144 @@ void rightWheelSpeed()
     }
   }
   R_SENSORA_LAST = Lstate;
-
+ 
   if(!R_direction)  R_duration  ;
   else  R_duration--;
 }
-
+ 
 void printSpeed(){
   Serial.print("Pulse Left:");
   Serial.println(L_duration);
-  L_duration = 0;
-
+  // L_duration = 0;
+ 
   Serial.print("Pulse Right:");
   Serial.println(R_duration);
+  // R_duration = 0;
+}
+ 
+void resetDuration()
+{
+  L_duration = 0;
   R_duration = 0;
 }
+ 
+int speedUp(int speed)
+{
+  analogWrite(LENB_PIN, speed);
+  analogWrite(RENA_PIN, speed);
+  delay(10);
+  // for (int speed = 0; speed <= maxSpeed; speed++) {
+  //     analogWrite(LENB_PIN, speed);
+  //     analogWrite(RENA_PIN, speed);
+  //     printSpeed();
+  //     delay(10);
+  //   }
+}
+ 
+void slowDown(int speed)
+{
+  analogWrite(LENB_PIN, 0);
+  analogWrite(RENA_PIN, 0);
+  delay(10);
+  // for (int speed = maxSpeed; speed >= 0; speed--) {
+  //     analogWrite(LENB_PIN, speed);
+  //     analogWrite(RENA_PIN, speed);
+  //     printSpeed();
+  //     delay(20);
+  //   }
+}
+ 
+// 700 steps per revolution
+void travelSteps(int steps, int maxSpeed)
+{
+  resetDuration();
+  delay(10);
+  speedUp(maxSpeed);
+ 
+  do {
+    delay(10);
+    printSpeed();
+  }while (abs(R_duration) < steps && abs(L_duration) < steps);
+ 
+  slowDown(maxSpeed);
+  // resetDuration();
+  delay(50);
+  // analogWrite(LENB_PIN, 0);
+  // analogWrite(RENA_PIN, 0);
+}
+ 
+void distanceTravel(int distance, int maxSpeed)
+{
+  // WHEEL_CIRCUMFERENCE = 267; //mm (approx, it is 267.035 mm more exactly)
+  // CPM_PER_REVOLUTION = 700;
+  float revolutions = distance/WHEEL_CIRCUMFERENCE;
+  int steps = int(trunc(revolutions*CPM_PER_REVOLUTION));
+  delay(10);
+  travelSteps(steps,maxSpeed);
+  delay(10);
+}
+ 
+void collectPayload()
+{
+  int delayTime = 25;
+  for (int angle = 0; angle <= 160; angle++) {
+    servoLeft.write(angle);
+    servoRight.write(180 - angle);
+    delay(delayTime);
+  }
+ 
+  servoLeft.write(175);
+  servoRight.write(180 - 175);
+  delay(200);
+}
+
+void changeDirection(Motion dir){
+  switch (dir) {
+    case Motion::FORWARD:
+      digitalWrite(LIN3_PIN, LOW);
+      digitalWrite(LIN4_PIN, HIGH);
+
+      digitalWrite(RIN1_PIN, HIGH);
+      digitalWrite(RIN2_PIN, LOW);
+      break;
+
+    case Motion::BACKWARD:
+      digitalWrite(LIN3_PIN, HIGH);
+      digitalWrite(LIN4_PIN, LOW);
+
+      digitalWrite(RIN1_PIN, LOW);
+      digitalWrite(RIN2_PIN, HIGH);
+      break;
+
+    case Motion::LEFT:
+      digitalWrite(LIN3_PIN, HIGH);
+      digitalWrite(LIN4_PIN, LOW);
+
+      digitalWrite(RIN1_PIN, HIGH);
+      digitalWrite(RIN2_PIN, LOW);
+      break;
+
+    case Motion::RIGHT:
+      digitalWrite(LIN3_PIN, LOW);
+      digitalWrite(LIN4_PIN, HIGH);
+
+      digitalWrite(RIN1_PIN, LOW);
+      digitalWrite(RIN2_PIN, HIGH);
+      break;
+
+  }
+  delay(50);
+}
+ 
+void resetArm()
+{
+ // Sweep: Left 180→0, Right 0→180
+  // Serial.println("--- Sweeping to 0° ---");
+  for (int angle = 175; angle >= 0; angle--) {
+    servoLeft.write(angle);
+    servoRight.write(180 - angle);
+    delay(25);
+  }
+}
+ 
+ 
