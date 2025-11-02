@@ -95,7 +95,7 @@ void loop() {
 
     delay(1000);
 
-    //Drive forward 
+    /* DRIVE TO PAYLOAD */
     changeDirection(Motion::FORWARD);
     delay(10);
  
@@ -104,19 +104,50 @@ void loop() {
     travelSteps(850,current_speed);
     // distanceTravel(250,current_speed); // travel 350 mm to the balls
     delay(100);
-    // resetArm();
 
-    collectPayload();
-    delay(5000);
+    /* COLLECT PAYLOAD */
+    collectPayload(175);
+    delay(1000);
 
     travelSteps(300,current_speed);
 
-    resetArm();
+    resetArm(175);
 
-    changeDirection(Motion::LEFT);
-    delay(10);
+    /* TURN 90 DEGREES LEFT TO FACE SEESAW */
+    turnLeft();
 
-    travelSteps(1050, current_speed);
+    /* APPROACH SEESAW */
+    travelSteps(350,current_speed);
+
+    /* CLIMB SEESAW */
+    current_speed = 175;
+
+    travelSteps(700,current_speed);
+    delay(50);
+
+    /* SEESAW PIVOTS */
+    changeDirection(Motion::BACKWARD);
+    travelSteps(700,current_speed);
+    delay(50);
+
+    /* DISMOUNT SEESAW */
+    changeDirection(Motion::FORWARD);
+    current_speed = 100;
+    travelSteps(700,current_speed);
+
+    /* TURN 90 DEGREES LEFT TO FACE PAYLOAD DEPOSIT */
+    turnLeft();
+
+    /* GO TO ZONE AND DEPOSIT */
+    changeDirection(Motion::FORWARD);
+    travelSteps(700,current_speed);
+    delay(500);
+    depositPayload();
+    delay(500);
+
+    /* REVERSE BACK INTO ZONE  */
+    changeDirection(Motion::BACKWARD);
+    travelSteps(700,current_speed);
  
     digitalWrite(LED_PIN, LOW);
     start = false;
@@ -181,6 +212,7 @@ void resetDuration()
 {
   L_duration = 0;
   R_duration = 0;
+  delay(10);
 }
  
 int speedUp(int speed)
@@ -205,52 +237,8 @@ void slowDown(int speed)
   //     analogWrite(LENB_PIN, speed);
   //     analogWrite(RENA_PIN, speed);
   //     printSpeed();
-  //     delay(20);
+  //     delay(10);
   //   }
-}
- 
-// 700 steps per revolution
-void travelSteps(int steps, int maxSpeed)
-{
-  resetDuration();
-  delay(10);
-  speedUp(maxSpeed);
- 
-  do {
-    delay(10);
-    printSpeed();
-  }while (abs(R_duration) < steps && abs(L_duration) < steps);
- 
-  slowDown(maxSpeed);
-  // resetDuration();
-  delay(50);
-  // analogWrite(LENB_PIN, 0);
-  // analogWrite(RENA_PIN, 0);
-}
- 
-void distanceTravel(int distance, int maxSpeed)
-{
-  // WHEEL_CIRCUMFERENCE = 267; //mm (approx, it is 267.035 mm more exactly)
-  // CPM_PER_REVOLUTION = 700;
-  float revolutions = distance/WHEEL_CIRCUMFERENCE;
-  int steps = int(trunc(revolutions*CPM_PER_REVOLUTION));
-  delay(10);
-  travelSteps(steps,maxSpeed);
-  delay(10);
-}
- 
-void collectPayload()
-{
-  int delayTime = 25;
-  for (int angle = 0; angle <= 160; angle++) {
-    servoLeft.write(angle);
-    servoRight.write(180 - angle);
-    delay(delayTime);
-  }
- 
-  servoLeft.write(175);
-  servoRight.write(180 - 175);
-  delay(200);
 }
 
 void changeDirection(Motion dir){
@@ -290,16 +278,90 @@ void changeDirection(Motion dir){
   }
   delay(50);
 }
+
  
-void resetArm()
+// 700 steps per revolution
+void travelSteps(int steps, int maxSpeed)
+{
+  resetDuration();
+
+  speedUp(maxSpeed);
+ 
+  do {
+    delay(10);
+    // printSpeed();
+  }while (abs(R_duration) < steps && abs(L_duration) < steps);
+ 
+  slowDown(maxSpeed);
+
+  delay(50);
+}
+ 
+void distanceTravel(int distance, int maxSpeed)
+{
+  // WHEEL_CIRCUMFERENCE = 267; //mm (approx, it is 267.035 mm more exactly)
+  // CPM_PER_REVOLUTION = 700;
+  float revolutions = distance/WHEEL_CIRCUMFERENCE;
+  int steps = int(trunc(revolutions*CPM_PER_REVOLUTION));
+  delay(10);
+  travelSteps(steps,maxSpeed);
+  delay(10);
+}
+
+void turnLeft()
+{
+  changeDirection(Motion::LEFT);
+  travelSteps(700,100); // one revolution, to be fine tuned
+  changeDirection(Motion::FORWARD);
+}
+
+void lowerArm(int maxAngle)
 {
  // Sweep: Left 180→0, Right 0→180
   // Serial.println("--- Sweeping to 0° ---");
-  for (int angle = 175; angle >= 0; angle--) {
+  for (int angle = 0; angle <= (maxAngle); angle++) {
+    servoLeft.write(angle);
+    servoRight.write(180 - angle);
+    delay(25);
+  }
+}
+
+void resetArm(int maxAngle)
+{
+ // Sweep: Left 180→0, Right 0→180
+  // Serial.println("--- Sweeping to 0° ---");
+  for (int angle = maxAngle; angle >= 0; angle--) {
     servoLeft.write(angle);
     servoRight.write(180 - angle);
     delay(25);
   }
 }
  
+void collectPayload(int maxAngle)
+{
+  lowerArm((maxAngle-15));
  
+  servoLeft.write(maxAngle);
+  servoRight.write(180 - maxAngle);
+  delay(200);
+}
+
+
+void openServoDoor()
+{
+
+}
+
+
+void depositPayload()
+{
+  int payloadAngle = 60;
+  lowerArm(payloadAngle);
+
+  delay(50);
+  openServoDoor();
+  delay(1000);
+
+  resetArm(payloadAngle);
+}
+
